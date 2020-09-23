@@ -12,6 +12,11 @@ Au menu :
   - backup
   - monitoring + alerting
 
+- [0. Prérequis](#0-prérequis)
+- [I. Setup serveur Web](#i-setup-serveur-web)
+- [II. Script de sauvegarde](#ii-script-de-sauvegarde)
+- [III. Monitoring, alerting](#iii-monitoring-alerting)
+
 # 0. Prérequis
 
 > **POUR RAPPEL** pour chacune des opérations, vous devez fournir dans le compte-rendu : comment réaliser l'opération ET la preuve que l'opération a été bien réalisée
@@ -19,18 +24,193 @@ Au menu :
 🌞 **Setup de deux machines CentOS7 configurée de façon basique.**
 
 - partitionnement
-
   - ajouter un deuxième disque de 5Go à la machine
-  - partitionner le nouveau disque avec LVM
-    - deux partitions, une de 2Go, une de 3Go
-    - la partition de 2Go sera montée sur `/srv/data1`
-    - la partition de 3Go sera montée sur `/srv/data2`
-  - les partitions doivent être montées automatiquement au démarrage
+
+```shell
+[mdugoua@localhost ~]$ lsblk
+NAME            MAJ:MIN RM  SIZE RO TYPE MOUNTPOINT
+sda               8:0    0    8G  0 disk
+|-sda1            8:1    0    1G  0 part /boot
+`-sda2            8:2    0    7G  0 part
+  |-centos-root 253:0    0  6.2G  0 lvm  /
+  `-centos-swap 253:1    0  820M  0 lvm  [SWAP]
+sdb               8:16   0    5G  0 disk
+sr0              11:0    1 1024M  0 rom
+```
+
+```shell
+[mdugoua@localhost ~]$ sudo pvcreate /dev/sdb
+[sudo] password for mdugoua:
+  Physical volume "/dev/sdb" successfully created.
+  
+[mdugoua@localhost ~]$ sudo pvs
+  PV         VG     Fmt  Attr PSize  PFree
+  /dev/sda2  centos lvm2 a--  <7.00g    0
+  /dev/sdb          lvm2 ---   5.00g 5.00g
+```
+
+*Ci dessus on peut voir le disque sdb de 5Go comme demandé.*
+
+- partitionner le nouveau disque avec LVM
+
+  ```shell
+  [mdugoua@localhost ~]$ sudo vgcreate site /dev/sdb
+  [sudo] password for mdugoua:
+    Volume group "site" successfully created
+    
+  [mdugoua@localhost ~]$ sudo vgs
+    VG     #PV #LV #SN Attr   VSize  VFree
+    centos   1   2   0 wz--n- <7.00g     0
+    site     1   0   0 wz--n- <5.00g <5.00g
+  ```
+
+  - deux partitions, une de 2Go, une de 3Go
+  - la partition de 2Go sera montée sur `/srv/site1`
+
+  ```shell
+  [mdugoua@localhost ~]$ sudo lvcreate -l 100%FREE site  -n site1
+    Logical volume "site1" created.
+  [mdugoua@localhost ~]$ sudo lvs
+    LV    VG     Attr       LSize   Pool Origin Data%  Meta%  Move Log Cpy%Sync Convert
+    root  centos -wi-ao----  <6.20g
+    swap  centos -wi-ao---- 820.00m
+    site1 site   -wi-a-----  <2.00g
+    site2 site   -wi-a-----   3.00g
+  ```
+
+  ```shell
+  [mdugoua@localhost ~]$ sudo mkfs -t ext4 /dev/site/site1
+  mke2fs 1.42.9 (28-Dec-2013)
+  Filesystem label=
+  OS type: Linux
+  Block size=4096 (log=2)
+  Fragment size=4096 (log=2)
+  Stride=0 blocks, Stripe width=0 blocks
+  130816 inodes, 523264 blocks
+  26163 blocks (5.00%) reserved for the super user
+  First data block=0
+  Maximum filesystem blocks=536870912
+  16 block groups
+  32768 blocks per group, 32768 fragments per group
+  8176 inodes per group
+  Superblock backups stored on blocks:
+  	32768, 98304, 163840, 229376, 294912
+  
+  Allocating group tables: done
+  Writing inode tables: done
+  Creating journal (8192 blocks): done
+  Writing superblocks and filesystem accounting information: done
+  ```
+
+  ```shell
+  [mdugoua@localhost ~]$ dfsudo mkdir /srv/site1
+  [mdugoua@localhost ~]$ sudo mount /dev/site/site1 /srv/site1
+  ```
+
+  - la partition de 3Go sera montée sur `/srv/site2`
+
+  ``` shell
+  [mdugoua@localhost ~]$ sudo lvcreate -L 3G site  -n site2
+    Logical volume "site2" created.
+  [mdugoua@localhost ~]$ sudo lvs
+    LV    VG     Attr       LSize   Pool Origin Data%  Meta%  Move Log Cpy%Sync Convert
+    root  centos -wi-ao----  <6.20g
+    swap  centos -wi-ao---- 820.00m
+    site2 site   -wi-a-----   3.00g
+  ```
+
+  ```shell
+  [mdugoua@localhost ~]$ sudo mkfs -t ext4 /dev/site/site2
+  mke2fs 1.42.9 (28-Dec-2013)
+  Filesystem label=
+  OS type: Linux
+  Block size=4096 (log=2)
+  Fragment size=4096 (log=2)
+  Stride=0 blocks, Stripe width=0 blocks
+  196608 inodes, 786432 blocks
+  39321 blocks (5.00%) reserved for the super user
+  First data block=0
+  Maximum filesystem blocks=805306368
+  24 block groups
+  32768 blocks per group, 32768 fragments per group
+  8192 inodes per group
+  Superblock backups stored on blocks:
+  	32768, 98304, 163840, 229376, 294912
+  
+  Allocating group tables: done
+  Writing inode tables: done
+  Creating journal (16384 blocks): done
+  Writing superblocks and filesystem accounting information: done
+  ```
+
+  ```shell
+  [mdugoua@localhost ~]$ sudo mkdir /srv/site2
+  [mdugoua@localhost ~]$ sudo mount /dev/site/site2 /srv/site2
+  ```
+
+- les partitions doivent être montées automatiquement au démarrage (fichier `/etc/fstab`)
+
+```shell
+[mdugoua@localhost ~]$ cat /etc/fstab
+#
+# /etc/fstab
+# Created by anaconda on Tue Mar 10 16:03:15 2020
+#
+# Accessible filesystems, by reference, are maintained under '/dev/disk'
+# See man pages fstab(5), findfs(8), mount(8) and/or blkid(8) for more info
+#
+/dev/mapper/centos-root /                       xfs     defaults        0 0
+UUID=68ef5c46-322d-49d0-8eb4-e8f8de10c475 /boot                   xfs     defaults        0 0
+/dev/mapper/centos-swap swap                    swap    defaults        0 0
+/dev/mapper/site-site1 /srv/site1 ext4 defaults 0 0
+/dev/mapper/site-site2 /srv/site2 ext4 defaults 0 0
+```
+
+```shell
+[mdugoua@localhost ~]$ sudo umount /srv/site1
+[mdugoua@localhost ~]$ sudo umount /srv/site2
+[mdugoua@localhost ~]$ sudo mount -av
+/                        : ignored
+/boot                    : already mounted
+swap                     : ignored
+mount: /srv/site1 does not contain SELinux labels.
+       You just mounted an file system that supports labels which does not
+       contain labels, onto an SELinux box. It is likely that confined
+       applications will generate AVC messages and not be allowed access to
+       this file system.  For more details see restorecon(8) and mount(8).
+/srv/site1               : successfully mounted
+mount: /srv/site2 does not contain SELinux labels.
+       You just mounted an file system that supports labels which does not
+       contain labels, onto an SELinux box. It is likely that confined
+       applications will generate AVC messages and not be allowed access to
+       this file system.  For more details see restorecon(8) and mount(8).
+/srv/site2               : successfully mounted
+```
 
 - un accès internet
 
   - carte réseau dédiée
+
+  ```shell
+  [mdugoua@localhost ~]$ ip a
+  [. . .]
+  2: enp0s3: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+      link/ether 08:00:27:c2:38:77 brd ff:ff:ff:ff:ff:ff
+      inet 10.0.2.15/24 brd 10.0.2.255 scope global noprefixroute dynamic enp0s3
+         valid_lft 78777sec preferred_lft 78777sec
+      inet6 fe80::2a03:f67f:7355:380/64 scope link noprefixroute
+         valid_lft forever preferred_lft forever
+  [. . .]
+  ```
+
   - route par défaut
+
+  ```shell
+  [mdugoua@localhost ~]$ ip route show
+  default via 10.0.2.2 dev enp0s3 proto dhcp metric 100
+  10.0.2.0/24 dev enp0s3 proto kernel scope link src 10.0.2.15 metric 100
+  192.168.59.0/24 dev enp0s8 proto kernel scope link src 192.168.59.11 metric 101
+  ```
 
 - un accès à un réseau local (les deux machines peuvent se 
 
@@ -40,8 +220,50 @@ Au menu :
 
   )
 
+  ```shell
+  [mdugoua@localhost ~]$ dig google.com@8.8.8.8
+  
+  ; <<>> DiG 9.11.4-P2-RedHat-9.11.4-9.P2.el7 <<>> google.com@8.8.8.8
+  ;; global options: +cmd
+  ;; Got answer:
+  ;; ->>HEADER<<- opcode: QUERY, status: NXDOMAIN, id: 12544
+  ;; flags: qr rd ra; QUERY: 1, ANSWER: 0, AUTHORITY: 1, ADDITIONAL: 1
+  
+  ;; OPT PSEUDOSECTION:
+  ; EDNS: version: 0, flags:; udp: 4000
+  ;; QUESTION SECTION:
+  ;google.com\@8.8.8.8.		IN	A
+  
+  ;; AUTHORITY SECTION:
+  .			900	IN	SOA	a.root-servers.net. nstld.verisign-grs.com. 2020092300 1800 900 604800 86400
+  
+  ;; Query time: 196 msec
+  ;; SERVER: 10.33.10.148#53(10.33.10.148)
+  ;; WHEN: Wed Sep 23 17:54:44 CEST 2020
+  ;; MSG SIZE  rcvd: 122
+  ```
+
   - carte réseau dédiée
+
+  ```shell
+  [mdugoua@localhost ~]$ ip a
+  [. . .]
+  3: enp0s8: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc pfifo_fast state UP group default qlen 1000
+      link/ether 08:00:27:4a:3f:1c brd ff:ff:ff:ff:ff:ff
+      inet 192.168.59.11/24 brd 192.168.59.255 scope global noprefixroute enp0s8
+         valid_lft forever preferred_lft forever
+      inet6 fe80::a00:27ff:fe4a:3f1c/64 scope link
+         valid_lft forever preferred_lft forever
+  ```
+
   - route locale
+
+  ```shell
+  [mdugoua@localhost ~]$ ip route show
+  default via 10.0.2.2 dev enp0s3 proto dhcp metric 100
+  10.0.2.0/24 dev enp0s3 proto kernel scope link src 10.0.2.15 metric 100
+  192.168.59.0/24 dev enp0s8 proto kernel scope link src 192.168.59.11 metric 101
+  ```
 
 - les machines doivent avoir un nom
 
