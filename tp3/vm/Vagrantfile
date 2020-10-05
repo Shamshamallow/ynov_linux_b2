@@ -1,0 +1,24 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+#
+Vagrant.configure("2") do |config|
+  # https://docs.vagrantup.com.
+  # boxes at https://vagrantcloud.com/search.
+
+  config.vm.box = "b2-tp3-systemd"
+
+  config.vbguest.auto_update = true
+  config.vm.box_check_update = false
+  config.vm.synced_folder ".", "/vagrant"
+
+
+  config.vm.define "b2-tp3" do |tp3|
+    tp3.vm.provider "virtualbox" do |tp|
+        tp.memory = "1024"
+        tp.name = "b2-tp3"
+	end
+    tp3.vm.network "private_network", ip: "192.168.2.11"
+    tp3.vm.hostname = "b2.tp3"
+  end
+
+end
