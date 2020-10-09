@@ -259,10 +259,65 @@ $ sudo systemctl daemon-reload
 - le service doit comporter une description
 - le port utilisé doit être défini dans une variable d'environnement (avec la clause `Environment=`)
 
+```shell
+[vagrant@b2 system]$ cat nginx.service
+[Unit]
+Description=The NGINX HTTP and reverse proxy servert
+
+[Service]
+Type=simple
+Environment="PORT=1050"
+
+ExecStartPre=/usr/bin/sudo /usr/bin/firewall-cmd --add-port=${PORT}/tcp --permanent
+ExecStartPre=/usr/bin/sudo /usr/bin/firewall-cmd --reload
+ExecStart=/usr/bin/python2 -m SimpleHTTPServer 1050
+ExecStartPost=/usr/bin/sudo /usr/bin/firewall-cmd --remove-port=${PORT}/tcp --permanent
+ExecStartPost=/usr/bin/sudo /usr/bin/firewall-cmd --reload
+
+User=web
+Group=web
+
+[Install]
+WantedBy=multi-user.target
+```
+
 🌞 Lancer le service
 
 - prouver qu'il est en cours de fonctionnement pour systemd
+
+```shell
+[web@b2 vagrant]$ sudo systemctl start nginx.service
+[web@b2 vagrant]$ systemctl status nginx.service
+● nginx.service - The NGINX HTTP and reverse proxy servert
+   Loaded: loaded (/etc/systemd/system/nginx.service; disabled; vendor preset: disabled)
+   Active: active (running) since Wed 2020-10-07 12:48:06 UTC; 6s ago
+  Process: 3799 ExecStartPost=/usr/bin/sudo /usr/bin/firewall-cmd --reload (code=exited, status=0/SUCCESS)
+  Process: 3793 ExecStartPost=/usr/bin/sudo /usr/bin/firewall-cmd --remove-port=${PORT}/tcp --permanent (code=exited, status=0/SUCCESS)
+  Process: 3760 ExecStartPre=/usr/bin/sudo /usr/bin/firewall-cmd --reload (code=exited, status=0/SUCCESS)
+  Process: 3755 ExecStartPre=/usr/bin/sudo /usr/bin/firewall-cmd --add-port=${PORT}/tcp --permanent (code=exited, status=0/SUCCESS)
+ Main PID: 3792 (python2)
+   CGroup: /system.slice/nginx.service
+           └─3792 /usr/bin/python2 -m SimpleHTTPServer 1050
+```
+
+- faites en sorte que le service s'allume au démarrage de la machine
+
+```shell
+[web@b2 vagrant]$ sudo systemctl enable nginx.service
+Created symlink from /etc/systemd/system/multi-user.target.wants/nginx.service to /etc/systemd/system/nginx.service.
+```
+
 - prouver que le serveur web est bien fonctionnel
+
+```shell
+[web@b2 vagrant]$ systemctl status nginx.service
+● nginx.service - The NGINX HTTP and reverse proxy servert
+   Loaded: loaded (/etc/systemd/system/nginx.service; enabled; vendor preset: disabled)
+   Active: active (running) since Wed 2020-10-07 12:48:06 UTC; 23s ago
+ Main PID: 3792 (python2)
+   CGroup: /system.slice/nginx.service
+           └─3792 /usr/bin/python2 -m SimpleHTTPServer 1050
+```
 
 > N'oubliez pas de tester votre service : le lancer avec `systemctl start <SERVICE>` et vérifier que votre serveur web fonctionne avec un navigateur ou un `curl` par exemple.
 
@@ -291,63 +346,89 @@ $ systemd-analyze security <SERVICE>
 - **NB** : la version de systemd livré avec CentOS 7 est trop vieille pour cette feature, il vous CentOS 8 (ou un autre OS)
 - mettre en place des mesures de sécurité pour avoir un score inférieur à 7
 
-# II. Autres features
+- # II. Autres features
 
-**Pour cette section, il sera nécessaire d'utiliser une version plus récente de systemd**. Vous devrez donc changer de box Vagrant, et utiliser une box possédant une version plus récente (par exemple une box CentOS8 ou une box Fedora récente).
+  **Pour cette section, il sera nécessaire d'utiliser une version plus récente de systemd**. Vous devrez donc changer de box Vagrant, et utiliser une box possédant une version plus récente (par exemple une box CentOS8 ou une box Fedora récente).
 
-## 1. Gestion d'interfaces
+  ------
 
-Pour cette partie, il faudra ajouter une interface à la machine virtuelle.
+  ## 1. Gestion de boot
 
-🌞 Utilisez le dossier `/etc/systemd/network/` pour configurer la nouvelle interface
+  🌞 Utilisez `systemd-analyze plot` pour récupérer une diagramme du boot, au format SVG
 
-- vous devez définir une IP statique à la carte, avec un masque de `255.252.0.0`
-- l'interface doit utiliser un DNS spécifique (`1.1.1.1`)
-- la passerelle doit être précisée explicitement et être fonctionnelle
-  - vous devez me prouver que l'adresse de passerelle choisie est valide
+  - il est possible de rediriger l'output de cette commande pour créer un fichier 
 
-## 2. Gestion de boot
+    ```
+    .svg
+    ```
 
-🌞 Utilisez `systemd-analyze plot` pour récupérer une diagramme du boot, au format SVG
+    - un `.svg` ça peut se lire avec un navigateur
 
-- il est possible de rediriger l'output de cette commande pour créer un fichier 
+    ```shell
+    [vagrant@centos8 ~]$ systemd-analyze plot >  analyze.svg
+    [vagrant@centos8 ~]$ ls
+    analyze.svg
+    ```
 
+  - déterminer les 3 **services** les plus lents à démarrer
+
+  ```shell
+  [vagrant@centos8 ~]$ systemd-analyze blame
+           14.659s vboxadd.service
+            3.288s dnf-makecache.service
+            2.118s dracut-initqueue.service
+  # [. . .]
   ```
-  .svg
+
+  ## 2. Gestion de l'heure
+
+  🌞 Utilisez la commande `timedatectl`
+
+  - déterminer votre fuseau horaire
+
+  ```shell
+  [vagrant@centos8 ~]$ timedatectl status | grep "Time zone"
+                  Time zone: Europe/Paris (CEST, +0200)
   ```
 
-  - un `.svg` ça peut se lire avec un navigateur
+  - déterminer si vous êtes synchronisés avec un serveur NTP
 
-- déterminer les 3 **services** les plus lents à démarrer
+  ```shell
+  [vagrant@centos8 ~]$ timedatectl status | grep NTP
+                NTP service: active
+  ```
 
-## 3. Gestion de l'heure
+  - changer le fuseau horaire
 
-🌞 Utilisez la commande `timedatectl`
+    ```shell
+    [vagrant@centos8 ~]$ sudo timedatectl set-timezone Europe/Paris
+    [vagrant@centos8 ~]$ timedatectl
+                   Local time: Fri 2020-10-09 13:51:17 CEST
+               Universal time: Fri 2020-10-09 11:51:17 UTC
+                     RTC time: Fri 2020-10-09 13:51:17
+                    Time zone: Europe/Paris (CEST, +0200)
+    System clock synchronized: no
+                  NTP service: active
+              RTC in local TZ: yes
+    ```
 
-- déterminer votre fuseau horaire
-- déterminer si vous êtes synchronisés avec un serveur NTP
-- changer le fuseau horaire
+  ## 3. Gestion des noms et de la résolution de noms
 
-## 4. Gestion des noms et de la résolution de noms
+  🌞 Utilisez `hostnamectl`
 
-🌞 Utilisez `hostnamectl`
+  - déterminer votre hostname actuel
 
-- déterminer votre hostname actuel
-- changer votre hostname
+    ```shell
+    [vagrant@centos8 ~]$ hostnamectl status | grep hostname
+       Static hostname: centos8.localdomain
+    ```
 
-# Structure du dépôt attendu
+  - changer votre hostname
 
-```
-[it4@nowhere]$ tree tp3/
-tp3/
-├── README.md
-├── scripts/
-├── systemd/
-│   ├── conf/
-│   └── units/
-└── Vagrantfile
-```
+  ```shell
+  [vagrant@centos8 ~]$ sudo hostnamectl set-hostname b2-tp3-centos8 --static
+  [vagrant@centos8 ~]$ hostnamectl status | grep hostname
+     Static hostname: b2-tp3-centos8
+  ```
 
-- `scripts/` contient (si besoin) les scripts lancés par le Vagrantfile au boot des VMs
-- `conf/` contient (si besoin) les fichiers de configuration relatifs à systemd
-- `units/` contient les fichiers d'unités systemd
+  # 
